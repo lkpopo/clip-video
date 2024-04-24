@@ -2,14 +2,33 @@ from flask import Flask, request, jsonify
 import requests
 import os
 import subprocess
-
-app = Flask(__name__)
+from sqlalchemy import create_engine, Column, Integer, String, ForeignKey,DateTime
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+from datetime import datetime
 
 # 定义用户的token
 valid_api_keys = ['Admin', 'Mr Zhang', 'Mr Zhou']
 # 定义剪辑的进度. 0：正在剪辑，1：剪辑完成
 Editing_Progress = 0
 
+
+app = Flask(__name__)
+Base = declarative_base()
+
+engine = create_engine('mysql+mysqlconnector://test:test@localhost/mydatabase')
+Base.metadata.create_all(engine)
+Session = sessionmaker(bind=engine)
+Base = declarative_base()
+
+# 定义数据库模型
+class User(Base):
+    __tablename__ = 'users'
+    username = Column(String, primary_key=True)
+    video_url = Column(String, nullable=False)
+    start_time = Column(String, nullable=False)
+    end_time = Column(String, nullable=False)
+    submitted_time = Column(DateTime, nullable=False, default=datetime.now)
 
 # 将视频下载服务器后进行剪辑
 def download_video(url, filename):
@@ -34,13 +53,17 @@ def submit_clip_request():
     start_time = data['start_time']
     end_time = data['end_time']
 
-    # 验证用户身份
+    # 验证用户身份 并生成剪辑请求的URL
     if token not in valid_api_keys:
         return jsonify({'error': 'Invalid User Token'}), 401
-
-    # 生成剪辑请求的URL
     clip_request_url = f'http://localhost:5000/clip-video?video_url={video_url}&start_time={start_time}&end_time={end_time}'
-    print("get video")
+
+    session = Session()
+    insert_info = User(username=token, video_url=video_url,start_time=start_time,end_time=end_time)
+    session.add(insert_info)
+    session.commit()
+    session.close()
+
     return jsonify({'clip_request_url': clip_request_url})
 
 
@@ -59,7 +82,7 @@ def clip_video():
     download_video(video_url, 'temp_video.mp4')
 
     subprocess.run(
-        ['ffmpeg', '-i', 'temp_video.mp4', '-ss', start_time, '-to', end_time, '-c:v', 'copy', '-c:a', 'copy',
+        ['ffmpeg', '-i', 'temp_video.mp4', '-ss', start_time, '-to', end_time, '-c:v', 'copy', '-c:a', 'copy','-y',
          output_file], check=True)
 
     # 删除临时下载的视频文件
